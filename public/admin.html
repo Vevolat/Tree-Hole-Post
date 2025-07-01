@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>留言板管理</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        button { padding: 5px 10px; margin-right: 5px; }
+        .search-box { margin: 20px 0; }
+        .delete-all { margin-top: 20px; background-color: #f44336; color: white; }
+    </style>
+</head>
+<body>
+    <h1>留言板管理</h1>
+    <div class="search-box">
+        <input type="text" id="search" placeholder="搜索留言内容...">
+        <button onclick="searchMessages()">搜索</button>
+    </div>
+    <table id="messages-table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>内容</th>
+                <th>作者</th>
+                <th>IP地址</th>
+                <th>时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <div>
+        <button class="delete-all" onclick="confirmDeleteAll()">删除所有留言</button>
+    </div>
+
+    <script>
+        let currentUser = null;
+
+        // 登录函数
+        function login() {
+            const username = prompt("请输入管理员用户名:");
+            const password = prompt("请输入密码:");
+            
+            if (!username || !password) {
+                alert("用户名和密码不能为空");
+                return;
+            }
+
+            // Base64编码认证信息
+            const token = btoa(`${username}:${password}`);
+            
+            // 验证登录
+            fetch('/admin/get_messages', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    currentUser = username;
+                    loadMessages();
+                } else {
+                    alert("认证失败");
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("登录出错");
+            });
+        }
+
+        // 加载留言
+        function loadMessages(search = '') {
+            if (!currentUser) {
+                login();
+                return;
+            }
+
+            const url = search ? `/admin/get_messages?search=${encodeURIComponent(search)}` : '/admin/get_messages';
+            
+            fetch(url, {
+                headers: {
+                    'Authorization': `Bearer ${btoa(`${currentUser}:${prompt('请再次输入密码:')}`)}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                const tbody = document.querySelector('#messages-table tbody');
+                tbody.innerHTML = '';
+                
+                if (data.status === 'error') {
+                    alert(data.message);
+                    if (data.message.includes('认证')) {
+                        currentUser = null;
+                        login();
+                    }
+                    return;
+                }
+
+                data.messages.forEach(msg => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${msg.id}</td>
+                        <td>${msg.content}</td>
+                        <td>${msg.author || '匿名'}</td>
+                        <td>${msg.ip_address || '未知'}</td>
+                        <td>${new Date(msg.timestamp).toLocaleString()}</td>
+                        <td>
+                            <button onclick="deleteMessage(${msg.id})">删除</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("加载留言出错");
+            });
+        }
+
+        // 搜索留言
+        function searchMessages() {
+            const searchTerm = document.getElementById('search').value;
+            loadMessages(searchTerm);
+        }
+
+        // 删除留言
+        function deleteMessage(id) {
+            if (!confirm('确定要删除这条留言吗?')) return;
+            
+            fetch('/admin/delete_message', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${btoa(`${currentUser}:${prompt('请再次输入密码:')}`)}`
+                },
+                body: JSON.stringify({ id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    loadMessages();
+                } else {
+                    alert(data.message || '删除失败');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("删除出错");
+            });
+        }
+
+        // 确认删除所有留言
+        function confirmDeleteAll() {
+            const password = prompt('请输入密码确认删除所有留言:');
+            if (!password) return;
+            
+            if (!confirm('确定要删除所有留言吗? 此操作不可恢复!')) return;
+            
+            fetch('/admin/delete_all_messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${btoa(`${currentUser}:${password}`)}`
+                },
+                body: JSON.stringify({
+                    username: currentUser,
+                    password: password
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message || (data.status === 'success' ? '所有留言已删除' : '删除失败'));
+                if (data.status === 'success') {
+                    loadMessages();
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("删除所有留言出错");
+            });
+        }
+
+        // 初始加载
+        login();
+    </script>
+</body>
+</html>
